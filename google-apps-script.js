@@ -94,15 +94,53 @@ function doPost(e) {
 }
 
 function doGet(e) {
-  // 연결 테스트 및 스프레드시트 URL 확인용
   try {
+    // ?data=... 파라미터가 있으면 시트에 저장
+    if (e && e.parameter && e.parameter.data) {
+      const data = JSON.parse(decodeURIComponent(e.parameter.data));
+      return handleSave(data);
+    }
+
+    // 파라미터 없으면 연결 테스트
     const ss = getOrCreateSpreadsheet();
     return ContentService
       .createTextOutput(JSON.stringify({ status: 'ok', spreadsheetUrl: ss.getUrl() }))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (error) {
+    console.error('doGet 오류:', error.toString());
     return ContentService
       .createTextOutput(JSON.stringify({ status: 'error', message: error.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
   }
+}
+
+function handleSave(data) {
+  const ss = getOrCreateSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) sheet = ss.insertSheet(SHEET_NAME);
+
+  if (sheet.getLastRow() === 0) {
+    const headers = Object.keys(data);
+    sheet.appendRow(headers);
+    const hr = sheet.getRange(1, 1, 1, headers.length);
+    hr.setBackground('#1e40af');
+    hr.setFontColor('#ffffff');
+    hr.setFontWeight('bold');
+    hr.setFontSize(10);
+    sheet.setFrozenRows(1);
+    for (let i = 1; i <= headers.length; i++) sheet.setColumnWidth(i, 100);
+  }
+
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const row = headers.map(h => (data[h] !== undefined ? data[h] : ''));
+  sheet.appendRow(row);
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow % 2 === 0) {
+    sheet.getRange(lastRow, 1, 1, headers.length).setBackground('#f0f9ff');
+  }
+
+  return ContentService
+    .createTextOutput(JSON.stringify({ status: 'ok', row: lastRow, url: ss.getUrl() }))
+    .setMimeType(ContentService.MimeType.JSON);
 }
