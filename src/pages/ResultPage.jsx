@@ -3,6 +3,8 @@ import { CATEGORY_LABELS, CATEGORY_COLORS } from '../data/testItems';
 
 const CAT_ORDER = ['C', 'S', 'SHG', 'SHD', 'SHE', 'L', 'O', 'SD'];
 
+const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbzi3thbADYf58fofGAhc0Nz443z5F2EidgMbkJKVuQOsGnBrN4r8ojYoVDXPog51wrp/exec';
+
 function SQBadge({ sq }) {
   if (sq === null || sq === undefined) return <span className="text-slate-400">-</span>;
   const color = sq >= 90 ? 'text-green-600' : sq >= 70 ? 'text-yellow-600' : 'text-red-500';
@@ -37,7 +39,7 @@ const BAR_COLORS = {
 
 export default function ResultPage({ info, result, scores, onBack, onEdit, onSaveRecord }) {
   const [sheetsUrl, setSheetsUrl] = useState(
-    () => localStorage.getItem('sms_sheets_url') || ''
+    () => localStorage.getItem('sms_sheets_url') || DEFAULT_SHEETS_URL
   );
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null); // 'ok' | 'error' | null
