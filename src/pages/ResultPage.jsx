@@ -94,9 +94,11 @@ export default function ResultPage({ info, result, scores, onBack, onEdit, onSav
         ),
       };
 
-      const res = await fetch(sheetsUrl, {
+      // no-cors 모드에서는 Content-Type을 text/plain으로 설정해야 body가 전달됨
+      // application/json은 preflight를 요구하는 non-simple 헤더라 body가 유실됨
+      await fetch(sheetsUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify(row),
         mode: 'no-cors',
       });
