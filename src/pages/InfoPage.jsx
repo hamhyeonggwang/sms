@@ -134,6 +134,19 @@ export default function InfoPage({ initialInfo, onNext, onBack }) {
           <Field label="장애">
             <input className={inputClass} value={info.disability} onChange={set('disability')} placeholder="예: 지적장애 2급" />
           </Field>
+
+          <div className="flex items-center gap-2 pt-1">
+            <input
+              type="checkbox"
+              id="developmentalDelay"
+              checked={!!info.developmentalDelay}
+              onChange={e => setInfo(prev => ({ ...prev, developmentalDelay: e.target.checked }))}
+              className="accent-blue-600 w-4 h-4"
+            />
+            <label htmlFor="developmentalDelay" className="text-sm text-slate-700 cursor-pointer">
+              발달지연 아동 <span className="text-xs text-slate-400">(기저선·한계점 5연속 기준 적용)</span>
+            </label>
+          </div>
         </section>
 
         {/* 보호자 정보 */}

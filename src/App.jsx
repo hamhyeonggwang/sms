@@ -38,7 +38,8 @@ export default function App() {
   function handleTestComplete(scores, startGroupIdx) {
     const [caYears, caMonths] = calcCAYearsMonths(currentRecord.info);
     const startItemId = (startGroupIdx != null) ? (AGE_GROUPS[startGroupIdx]?.range[0] ?? 0) : 0;
-    const result = computeResult(scores, caYears, caMonths, startItemId);
+    const threshold = currentRecord.info?.developmentalDelay ? 5 : 3;
+    const result = computeResult(scores, caYears, caMonths, startItemId, threshold);
     const updated = { ...currentRecord, scores, result, startGroupIdx };
     setCurrentRecord(updated);
     saveRecord(updated);

@@ -1,6 +1,5 @@
-import { TEST_ITEMS, AGE_GROUPS } from '../data/testItems';
+import { TEST_ITEMS } from '../data/testItems';
 
-// 점수 가중치
 export const SCORE_WEIGHTS = {
   '+': 1,
   '+F': 1,
@@ -9,12 +8,10 @@ export const SCORE_WEIGHTS = {
   '-': 0,
 };
 
-// 연령(년+월) → 소수 년수 변환
 export function ageToDecimal(years, months) {
   return Number(years || 0) + Number(months || 0) / 12;
 }
 
-// 소수 년수 → "X년 Y개월" 표현
 export function decimalToAgeStr(decimal) {
   if (!decimal || decimal <= 0) return '-';
   const years = Math.floor(decimal);
@@ -24,30 +21,54 @@ export function decimalToAgeStr(decimal) {
   return `${years}세 ${months}개월`;
 }
 
-// 기저선(basal) 찾기: 연속으로 모든 문항이 통과된 마지막 연령구간
-export function findBasal(scores) {
-  let basalItemId = 0;
-  for (const group of AGE_GROUPS) {
-    const [start, end] = group.range;
-    const groupItems = TEST_ITEMS.filter(i => i.id >= start && i.id <= end);
-    const allPassed = groupItems.every(item => {
-      const s = scores[item.id];
-      return s === '+' || s === '+F' || s === '+NO';
-    });
-    if (allPassed) {
-      basalItemId = end;
-    } else {
-      break;
-    }
-  }
-  return basalItemId;
+function isPassScore(s) {
+  return s === '+' || s === '+F';
 }
 
-// 총점 계산 (기본점 + 가산점)
-// startItemId: 검사 시작 문항 번호. 이 번호 미만은 모두 통과(기저선) 처리
-export function calculateRawScore(scores, startItemId = 0) {
-  const basalFromScores = findBasal(scores);
-  // 시작 문항 이전도 기저선으로 처리 (두 기준 중 높은 쪽)
+/**
+ * 기저선(Basal) 탐색
+ * threshold개 연속 '+'/'+F' 발견 시 그 직전 문항 ID 반환.
+ * 미발견 시 0 반환.
+ */
+export function findBasal(scores, threshold = 3) {
+  let consecutive = 0;
+  for (let i = 0; i < TEST_ITEMS.length; i++) {
+    if (isPassScore(scores[TEST_ITEMS[i].id])) {
+      consecutive++;
+      if (consecutive >= threshold) {
+        const blockStartIdx = i - threshold + 1;
+        return blockStartIdx > 0 ? TEST_ITEMS[blockStartIdx - 1].id : 0;
+      }
+    } else {
+      consecutive = 0;
+    }
+  }
+  return 0;
+}
+
+/**
+ * 한계점(Ceiling) 탐색
+ * threshold개 연속 '-' 발견 시 그 마지막 문항 ID 반환.
+ * 미도달 시 null 반환.
+ */
+export function findCeiling(scores, threshold = 3) {
+  let consecutive = 0;
+  for (let i = 0; i < TEST_ITEMS.length; i++) {
+    if (scores[TEST_ITEMS[i].id] === '-') {
+      consecutive++;
+      if (consecutive >= threshold) {
+        return TEST_ITEMS[i].id;
+      }
+    } else {
+      consecutive = 0;
+    }
+  }
+  return null;
+}
+
+export function calculateRawScore(scores, startItemId = 0, threshold = 3) {
+  const basalFromScores = findBasal(scores, threshold);
+  // 시작 문항 이전 + 연속 통과로 확정된 기저선 중 높은 쪽
   const effectiveBasal = Math.max(basalFromScores, startItemId > 0 ? startItemId - 1 : 0);
 
   let baseScore = 0;
@@ -62,40 +83,34 @@ export function calculateRawScore(scores, startItemId = 0) {
     }
   }
 
-  return { baseScore, additionalScore, total: baseScore + additionalScore };
+  return { baseScore, additionalScore, total: baseScore + additionalScore, basalItemId: effectiveBasal };
 }
 
-// SA(사회연령) 산출: 총 점수를 연령등가치로 변환
-// 각 문항의 ageEquiv가 오름차순 정렬되어 있으므로,
-// 총 점수 위치의 문항 ageEquiv를 보간하여 SA를 구함
 export function calculateSA(rawTotal) {
-  const items = TEST_ITEMS;
-  const n = items.length;
-
+  const n = TEST_ITEMS.length;
   if (rawTotal <= 0) return 0;
-  if (rawTotal >= n) return items[n - 1].ageEquiv;
+  if (rawTotal >= n) return TEST_ITEMS[n - 1].ageEquiv;
 
   const lowerIdx = Math.floor(rawTotal) - 1;
   const upperIdx = Math.ceil(rawTotal) - 1;
   const frac = rawTotal - Math.floor(rawTotal);
 
-  if (lowerIdx < 0) return items[0].ageEquiv * rawTotal;
-  if (upperIdx >= n) return items[n - 1].ageEquiv;
+  if (lowerIdx < 0) return TEST_ITEMS[0].ageEquiv * rawTotal;
+  if (upperIdx >= n) return TEST_ITEMS[n - 1].ageEquiv;
 
-  const lower = items[lowerIdx].ageEquiv;
-  const upper = items[upperIdx].ageEquiv;
-  return lower + (upper - lower) * frac;
+  return TEST_ITEMS[lowerIdx].ageEquiv + (TEST_ITEMS[upperIdx].ageEquiv - TEST_ITEMS[lowerIdx].ageEquiv) * frac;
 }
 
-// SQ(사회지수) = SA / CA × 100
 export function calculateSQ(sa, caYears, caMonths) {
   const ca = ageToDecimal(caYears, caMonths);
   if (!ca || ca <= 0) return null;
   return Math.round((sa / ca) * 100);
 }
 
-// 영역별 점수 집계
-export function calculateCategoryScores(scores, startItemId = 0) {
+export function calculateCategoryScores(scores, startItemId = 0, threshold = 3) {
+  const basalFromScores = findBasal(scores, threshold);
+  const effectiveBasal = Math.max(basalFromScores, startItemId > 0 ? startItemId - 1 : 0);
+
   const categories = ['C', 'S', 'SHG', 'SHD', 'SHE', 'L', 'O', 'SD'];
   const result = {};
 
@@ -104,8 +119,8 @@ export function calculateCategoryScores(scores, startItemId = 0) {
     let passed = 0;
     const total = items.length;
     for (const item of items) {
-      if (startItemId > 0 && item.id < startItemId) {
-        passed += 1; // 시작 문항 이전은 통과 처리
+      if (item.id <= effectiveBasal) {
+        passed += 1;
       } else {
         passed += SCORE_WEIGHTS[scores[item.id]] || 0;
       }
@@ -116,13 +131,12 @@ export function calculateCategoryScores(scores, startItemId = 0) {
   return result;
 }
 
-// 전체 결과 한번에 산출
-export function computeResult(scores, caYears, caMonths, startItemId = 0) {
-  const { baseScore, additionalScore, total } = calculateRawScore(scores, startItemId);
+export function computeResult(scores, caYears, caMonths, startItemId = 0, threshold = 3) {
+  const { baseScore, additionalScore, total, basalItemId } = calculateRawScore(scores, startItemId, threshold);
+  const ceilingItemId = findCeiling(scores, threshold);
   const sa = calculateSA(total);
   const sq = calculateSQ(sa, caYears, caMonths);
-  const categoryScores = calculateCategoryScores(scores, startItemId);
-  const basalItemId = findBasal(scores);
+  const categoryScores = calculateCategoryScores(scores, startItemId, threshold);
 
   return {
     baseScore: Math.round(baseScore),
@@ -133,6 +147,8 @@ export function computeResult(scores, caYears, caMonths, startItemId = 0) {
     sq,
     categoryScores,
     basalItemId,
+    ceilingItemId,
     startItemId,
+    threshold,
   };
 }
