@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { TEST_ITEMS, AGE_GROUPS, CATEGORY_LABELS, CATEGORY_COLORS } from '../data/testItems';
 
 const SCORE_OPTIONS = [
@@ -33,7 +33,18 @@ function ScoreButtons({ value, onChange }) {
   );
 }
 
-function ItemCard({ item, score, onChange, isBasal }) {
+function ItemCard({ item, score, onChange, isAutoPass }) {
+  if (isAutoPass) {
+    return (
+      <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-2.5 flex items-center gap-3 opacity-60">
+        <span className="text-xs text-slate-400 font-mono w-6 text-right shrink-0">{item.id}</span>
+        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${CATEGORY_COLORS[item.category]}`}>{item.category}</span>
+        <span className="text-xs text-slate-500 flex-1 truncate">{item.text}</span>
+        <span className="text-[10px] text-green-600 font-semibold shrink-0">기저선 통과</span>
+      </div>
+    );
+  }
+
   return (
     <div className={`
       rounded-xl border p-4 transition-all
@@ -43,7 +54,6 @@ function ItemCard({ item, score, onChange, isBasal }) {
           : 'bg-white border-blue-200 shadow-sm'
         : 'bg-white border-slate-200'
       }
-      ${isBasal ? 'ring-2 ring-green-300' : ''}
     `}>
       <div className="flex items-start gap-3">
         <span className="text-xs text-slate-400 font-mono mt-0.5 shrink-0 w-6 text-right">{item.id}</span>
@@ -68,15 +78,43 @@ function ItemCard({ item, score, onChange, isBasal }) {
   );
 }
 
-export default function TestPage({ info, initialScores, onComplete, onBack }) {
+function calcCA(info) {
+  if (!info?.birthYear) return null;
+  const birth = new Date(
+    `${info.birthYear}-${String(info.birthMonth || 1).padStart(2, '0')}-${String(info.birthDay || 1).padStart(2, '0')}`
+  );
+  const test = new Date(info?.testDate || Date.now());
+  const diff = (test - birth) / (1000 * 60 * 60 * 24 * 365.25);
+  const y = Math.floor(diff);
+  const m = Math.round((diff % 1) * 12);
+  return `${y}세 ${m}개월`;
+}
+
+export default function TestPage({ info, initialScores, initialStartGroupIdx, onComplete, onBack }) {
   const [scores, setScores] = useState(initialScores || {});
-  const [activeGroupIdx, setActiveGroupIdx] = useState(0);
+  const [startGroupIdx, setStartGroupIdx] = useState(initialStartGroupIdx ?? null);
+  const [activeGroupIdx, setActiveGroupIdx] = useState(startGroupIdx ?? 0);
   const [showLegend, setShowLegend] = useState(false);
   const groupRefs = useRef({});
   const mainRef = useRef(null);
 
-  const scoredCount = Object.keys(scores).length;
-  const pct = Math.round((scoredCount / TEST_ITEMS.length) * 100);
+  const startItemId = startGroupIdx !== null ? (AGE_GROUPS[startGroupIdx]?.range[0] ?? 0) : 0;
+
+  const caStr = useMemo(() => calcCA(info), [info]);
+
+  // 시작 연령 설정: 이전 그룹 items는 자동통과로 표시
+  function handleSetStart(idx) {
+    setStartGroupIdx(prev => (prev === idx ? null : idx));
+  }
+
+  // 진행 계산: 시작 문항 이후만 카운트
+  const itemsToScore = startItemId > 0
+    ? TEST_ITEMS.filter(i => i.id >= startItemId)
+    : TEST_ITEMS;
+  const scoredCount = itemsToScore.filter(i => scores[i.id]).length;
+  const autoCount = startItemId > 0 ? startItemId - 1 : 0;
+  const totalEffective = autoCount + scoredCount;
+  const pct = Math.round((totalEffective / TEST_ITEMS.length) * 100);
 
   function setScore(itemId, value) {
     setScores(prev => {
@@ -94,11 +132,11 @@ export default function TestPage({ info, initialScores, onComplete, onBack }) {
   }
 
   function handleDone() {
-    const unscored = TEST_ITEMS.filter(i => !scores[i.id]).length;
+    const unscored = itemsToScore.filter(i => !scores[i.id]).length;
     if (unscored > 0) {
       if (!confirm(`아직 채점되지 않은 문항이 ${unscored}개 있습니다.\n계속 결과를 산출하시겠습니까?`)) return;
     }
-    onComplete(scores);
+    onComplete(scores, startGroupIdx);
   }
 
   useEffect(() => {
@@ -144,7 +182,9 @@ export default function TestPage({ info, initialScores, onComplete, onBack }) {
               <div className="flex-1 bg-slate-100 rounded-full h-1.5">
                 <div className="bg-blue-500 h-1.5 rounded-full transition-all" style={{ width: `${pct}%` }} />
               </div>
-              <span className="text-xs text-slate-400 shrink-0">{scoredCount}/117</span>
+              <span className="text-xs text-slate-400 shrink-0">
+                {autoCount > 0 ? `${autoCount}+${scoredCount}` : scoredCount}/117
+              </span>
             </div>
           </div>
         </div>
@@ -164,39 +204,71 @@ export default function TestPage({ info, initialScores, onComplete, onBack }) {
       {/* 본문: 사이드바 + 메인 */}
       <div className="flex flex-1 overflow-hidden">
 
-        {/* 사이드바 — 연령 구간 네비게이션 */}
-        <aside className="w-24 shrink-0 bg-white border-r border-slate-200 sticky top-[57px] self-start h-[calc(100vh-57px)] overflow-y-auto flex flex-col py-2">
-          {AGE_GROUPS.map((g, idx) => {
-            const [start, end] = g.range;
-            const groupItems = TEST_ITEMS.filter(i => i.id >= start && i.id <= end);
-            const scoredInGroup = groupItems.filter(i => scores[i.id]).length;
-            const allDone = scoredInGroup === groupItems.length;
-            const isActive = activeGroupIdx === idx;
+        {/* 사이드바 */}
+        <aside className="w-28 shrink-0 bg-white border-r border-slate-200 sticky top-[57px] self-start h-[calc(100vh-57px)] overflow-y-auto flex flex-col">
 
-            return (
-              <button
-                key={idx}
-                onClick={() => scrollToGroup(idx)}
-                className={`
-                  relative w-full text-left px-3 py-2.5 transition-all
-                  ${isActive
-                    ? 'bg-blue-50 text-blue-700'
-                    : 'text-slate-500 hover:bg-slate-50'
-                  }
-                `}
-              >
-                {isActive && (
-                  <span className="absolute left-0 top-1 bottom-1 w-0.5 bg-blue-600 rounded-r" />
-                )}
-                <span className={`block text-xs font-semibold leading-tight ${isActive ? 'text-blue-700' : 'text-slate-700'}`}>
-                  {g.label}
-                </span>
-                <span className={`block text-[10px] mt-0.5 ${allDone ? 'text-green-500 font-medium' : 'text-slate-400'}`}>
-                  {allDone ? '✓ 완료' : `${scoredInGroup}/${groupItems.length}`}
-                </span>
-              </button>
-            );
-          })}
+          {/* 기본 정보 패널 */}
+          <div className="px-2 py-2.5 border-b border-slate-100 bg-slate-50">
+            <p className="text-[11px] font-bold text-slate-700 truncate">{info?.name || '-'}</p>
+            {caStr && <p className="text-[10px] text-slate-500 mt-0.5">CA {caStr}</p>}
+            {info?.testDate && <p className="text-[10px] text-slate-400">{info.testDate}</p>}
+            {startGroupIdx !== null && (
+              <p className="text-[10px] text-orange-600 font-semibold mt-1">
+                ▶ {AGE_GROUPS[startGroupIdx]?.label} 시작
+              </p>
+            )}
+          </div>
+
+          {/* 연령 구간 목록 */}
+          <div className="flex-1 py-1">
+            {AGE_GROUPS.map((g, idx) => {
+              const [start, end] = g.range;
+              const groupItems = TEST_ITEMS.filter(i => i.id >= start && i.id <= end);
+              const isAutoPass = startGroupIdx !== null && idx < startGroupIdx;
+              const scoredInGroup = isAutoPass
+                ? groupItems.length
+                : groupItems.filter(i => scores[i.id]).length;
+              const allDone = scoredInGroup === groupItems.length;
+              const isActive = activeGroupIdx === idx;
+              const isStart = startGroupIdx === idx;
+
+              return (
+                <div
+                  key={idx}
+                  className={`
+                    relative flex items-center transition-all cursor-pointer
+                    ${isActive ? 'bg-blue-50' : 'hover:bg-slate-50'}
+                  `}
+                  onClick={() => scrollToGroup(idx)}
+                >
+                  {isActive && (
+                    <span className="absolute left-0 top-1 bottom-1 w-0.5 bg-blue-600 rounded-r" />
+                  )}
+                  <div className="flex-1 px-3 py-2">
+                    <span className={`block text-xs font-semibold leading-tight ${isActive ? 'text-blue-700' : 'text-slate-700'}`}>
+                      {g.label}
+                    </span>
+                    <span className={`block text-[10px] mt-0.5 ${isAutoPass ? 'text-green-500 font-medium' : allDone ? 'text-green-500 font-medium' : 'text-slate-400'}`}>
+                      {isAutoPass ? '✓ 자동통과' : allDone ? '✓ 완료' : `${scoredInGroup}/${groupItems.length}`}
+                    </span>
+                  </div>
+                  {/* 시작 위치 설정 버튼 */}
+                  <button
+                    type="button"
+                    title={isStart ? '시작 위치 해제' : '여기서 시작'}
+                    className={`mr-1.5 w-5 h-5 flex items-center justify-center rounded text-[11px] transition-colors shrink-0
+                      ${isStart
+                        ? 'text-orange-500 bg-orange-50'
+                        : 'text-slate-300 hover:text-orange-400'
+                      }`}
+                    onClick={e => { e.stopPropagation(); handleSetStart(idx); }}
+                  >
+                    ▶
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </aside>
 
         {/* 메인 콘텐츠 */}
@@ -204,7 +276,10 @@ export default function TestPage({ info, initialScores, onComplete, onBack }) {
           {AGE_GROUPS.map((group, idx) => {
             const [start, end] = group.range;
             const groupItems = TEST_ITEMS.filter(i => i.id >= start && i.id <= end);
-            const scoredInGroup = groupItems.filter(i => scores[i.id]).length;
+            const isAutoPassGroup = startGroupIdx !== null && idx < startGroupIdx;
+            const scoredInGroup = isAutoPassGroup
+              ? groupItems.length
+              : groupItems.filter(i => scores[i.id]).length;
 
             return (
               <section
@@ -214,10 +289,17 @@ export default function TestPage({ info, initialScores, onComplete, onBack }) {
               >
                 <div className="flex items-center gap-2 mb-3">
                   <h2 className="text-sm font-bold text-slate-700">{group.label} 구간</h2>
-                  <span className="text-xs text-slate-400">{scoredInGroup}/{groupItems.length}</span>
-                  {scoredInGroup === groupItems.length && (
-                    <span className="text-xs text-green-600 font-medium">✓ 완료</span>
-                  )}
+                  {isAutoPassGroup
+                    ? <span className="text-xs text-green-600 font-medium">✓ 기저선 자동통과</span>
+                    : (
+                      <>
+                        <span className="text-xs text-slate-400">{scoredInGroup}/{groupItems.length}</span>
+                        {scoredInGroup === groupItems.length && (
+                          <span className="text-xs text-green-600 font-medium">✓ 완료</span>
+                        )}
+                      </>
+                    )
+                  }
                 </div>
                 <div className="space-y-3">
                   {groupItems.map(item => (
@@ -226,7 +308,7 @@ export default function TestPage({ info, initialScores, onComplete, onBack }) {
                       item={item}
                       score={scores[item.id]}
                       onChange={val => setScore(item.id, val)}
-                      isBasal={false}
+                      isAutoPass={isAutoPassGroup}
                     />
                   ))}
                 </div>

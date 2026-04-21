@@ -4,6 +4,7 @@ import InfoPage from './pages/InfoPage';
 import TestPage from './pages/TestPage';
 import ResultPage from './pages/ResultPage';
 import { computeResult } from './utils/scoring';
+import { AGE_GROUPS } from './data/testItems';
 
 export default function App() {
   const [page, setPage] = useState('start');
@@ -34,10 +35,11 @@ export default function App() {
     return [Math.floor(diffYears), Math.round((diffYears % 1) * 12)];
   }
 
-  function handleTestComplete(scores) {
+  function handleTestComplete(scores, startGroupIdx) {
     const [caYears, caMonths] = calcCAYearsMonths(currentRecord.info);
-    const result = computeResult(scores, caYears, caMonths);
-    const updated = { ...currentRecord, scores, result };
+    const startItemId = (startGroupIdx != null) ? (AGE_GROUPS[startGroupIdx]?.range[0] ?? 0) : 0;
+    const result = computeResult(scores, caYears, caMonths, startItemId);
+    const updated = { ...currentRecord, scores, result, startGroupIdx };
     setCurrentRecord(updated);
     saveRecord(updated);
     setPage('result');
@@ -57,7 +59,7 @@ export default function App() {
 
   if (page === 'start') return <StartPage onNew={startNew} onResume={resumeRecord} />;
   if (page === 'info')  return <InfoPage initialInfo={currentRecord?.info} onNext={handleInfoNext} onBack={() => setPage('start')} />;
-  if (page === 'test')  return <TestPage info={currentRecord?.info} initialScores={currentRecord?.scores} onComplete={handleTestComplete} onBack={() => setPage('info')} />;
+  if (page === 'test')  return <TestPage info={currentRecord?.info} initialScores={currentRecord?.scores} initialStartGroupIdx={currentRecord?.startGroupIdx} onComplete={handleTestComplete} onBack={() => setPage('info')} />;
   if (page === 'result') return <ResultPage info={currentRecord?.info} result={currentRecord?.result} scores={currentRecord?.scores} onBack={() => setPage('start')} onEdit={() => setPage('test')} onSaveRecord={() => saveRecord(currentRecord)} />;
   return null;
 }

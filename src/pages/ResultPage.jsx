@@ -38,6 +38,127 @@ const BAR_HEX = {
   O: '#eab308', SD: '#f43f5e',
 };
 
+const CAT_SHORT = {
+  C: '의사\n소통', S: '사회화', SHG: '자조\n(일반)', SHD: '자조\n(의복)',
+  SHE: '자조\n(식사)', L: '이동', O: '작업', SD: '자기\n관리',
+};
+
+function RadarChart({ categoryScores }) {
+  const SIZE = 300;
+  const cx = SIZE / 2;
+  const cy = SIZE / 2;
+  const R = 96;
+  const LABEL_R = 128;
+  const n = CAT_ORDER.length;
+
+  function polar(angleDeg, r) {
+    const rad = ((angleDeg - 90) * Math.PI) / 180;
+    return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+  }
+
+  const angles = CAT_ORDER.map((_, i) => (360 / n) * i);
+  const gridLevels = [0.25, 0.5, 0.75, 1.0];
+
+  function gridPoints(level) {
+    return angles.map(a => {
+      const { x, y } = polar(a, level * R);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+  }
+
+  const dataPoints = CAT_ORDER.map((cat, i) => {
+    const pct = categoryScores[cat]?.pct || 0;
+    return polar(angles[i], (pct / 100) * R);
+  });
+
+  const dataPath = dataPoints
+    .map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`)
+    .join(' ') + 'Z';
+
+  return (
+    <svg
+      viewBox={`0 0 ${SIZE} ${SIZE}`}
+      className="w-full max-w-[280px] mx-auto block"
+    >
+      {/* 배경 그리드 */}
+      {gridLevels.map(level => (
+        <polygon
+          key={level}
+          points={gridPoints(level)}
+          fill="none"
+          stroke={level === 1 ? '#cbd5e1' : '#e2e8f0'}
+          strokeWidth="1"
+        />
+      ))}
+
+      {/* 축선 */}
+      {angles.map((angle, i) => {
+        const end = polar(angle, R);
+        return <line key={i} x1={cx} y1={cy} x2={end.x.toFixed(1)} y2={end.y.toFixed(1)} stroke="#e2e8f0" strokeWidth="1" />;
+      })}
+
+      {/* 데이터 영역 */}
+      <path d={dataPath} fill="rgba(59,130,246,0.15)" stroke="#3b82f6" strokeWidth="2" strokeLinejoin="round" />
+
+      {/* 데이터 점 */}
+      {dataPoints.map((p, i) => (
+        <circle key={i} cx={p.x.toFixed(1)} cy={p.y.toFixed(1)} r="3.5" fill="#3b82f6" stroke="white" strokeWidth="1.5" />
+      ))}
+
+      {/* 그리드 % 레이블 (북쪽 축) */}
+      {gridLevels.map(level => {
+        const p = polar(0, level * R);
+        return (
+          <text key={level} x={(p.x + 3).toFixed(1)} y={p.y.toFixed(1)} fontSize="7" fill="#94a3b8" dominantBaseline="middle">
+            {Math.round(level * 100)}%
+          </text>
+        );
+      })}
+
+      {/* 카테고리 레이블 */}
+      {CAT_ORDER.map((cat, i) => {
+        const p = polar(angles[i], LABEL_R);
+        const cs = categoryScores[cat];
+        const lines = CAT_SHORT[cat].split('\n');
+        const pct = cs?.pct || 0;
+        const lineH = 10;
+        const totalH = (lines.length + 1) * lineH;
+        const startY = p.y - totalH / 2;
+
+        return (
+          <g key={cat}>
+            {lines.map((line, li) => (
+              <text
+                key={li}
+                x={p.x.toFixed(1)}
+                y={(startY + li * lineH + 4).toFixed(1)}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fontSize="9"
+                fill="#475569"
+                fontWeight="600"
+              >
+                {line}
+              </text>
+            ))}
+            <text
+              x={p.x.toFixed(1)}
+              y={(startY + lines.length * lineH + 4).toFixed(1)}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              fontSize="9"
+              fill="#3b82f6"
+              fontWeight="700"
+            >
+              {pct}%
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 export default function ResultPage({ info, result, scores, onBack, onEdit, onSaveRecord }) {
   const [sheetsUrl, setSheetsUrl] = useState(
     () => localStorage.getItem('sms_sheets_url') || DEFAULT_SHEETS_URL
@@ -222,7 +343,14 @@ export default function ResultPage({ info, result, scores, onBack, onEdit, onSav
           {/* 영역별 결과 */}
           <section className="bg-white rounded-xl border border-slate-200 p-4">
             <h2 className="text-sm font-bold text-slate-700 mb-3">영역별 결과</h2>
-            <div className="space-y-3">
+
+            {/* 레이더 차트 */}
+            <div className="mb-4">
+              <RadarChart categoryScores={result.categoryScores} />
+            </div>
+
+            {/* 바 차트 */}
+            <div className="space-y-3 border-t border-slate-100 pt-3">
               {CAT_ORDER.map(cat => {
                 const cs = result.categoryScores[cat];
                 return (

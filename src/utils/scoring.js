@@ -44,15 +44,17 @@ export function findBasal(scores) {
 }
 
 // 총점 계산 (기본점 + 가산점)
-export function calculateRawScore(scores) {
-  const basalItemId = findBasal(scores);
+// startItemId: 검사 시작 문항 번호. 이 번호 미만은 모두 통과(기저선) 처리
+export function calculateRawScore(scores, startItemId = 0) {
+  const basalFromScores = findBasal(scores);
+  // 시작 문항 이전도 기저선으로 처리 (두 기준 중 높은 쪽)
+  const effectiveBasal = Math.max(basalFromScores, startItemId > 0 ? startItemId - 1 : 0);
 
   let baseScore = 0;
   let additionalScore = 0;
 
   for (const item of TEST_ITEMS) {
-    if (item.id <= basalItemId) {
-      // 기저선 이하: 모두 만점 처리
+    if (item.id <= effectiveBasal) {
       baseScore += 1;
     } else {
       const s = scores[item.id];
@@ -93,16 +95,20 @@ export function calculateSQ(sa, caYears, caMonths) {
 }
 
 // 영역별 점수 집계
-export function calculateCategoryScores(scores) {
+export function calculateCategoryScores(scores, startItemId = 0) {
   const categories = ['C', 'S', 'SHG', 'SHD', 'SHE', 'L', 'O', 'SD'];
   const result = {};
 
   for (const cat of categories) {
     const items = TEST_ITEMS.filter(i => i.category === cat);
     let passed = 0;
-    let total = items.length;
+    const total = items.length;
     for (const item of items) {
-      passed += SCORE_WEIGHTS[scores[item.id]] || 0;
+      if (startItemId > 0 && item.id < startItemId) {
+        passed += 1; // 시작 문항 이전은 통과 처리
+      } else {
+        passed += SCORE_WEIGHTS[scores[item.id]] || 0;
+      }
     }
     result[cat] = { passed, total, pct: total > 0 ? Math.round((passed / total) * 100) : 0 };
   }
@@ -111,11 +117,11 @@ export function calculateCategoryScores(scores) {
 }
 
 // 전체 결과 한번에 산출
-export function computeResult(scores, caYears, caMonths) {
-  const { baseScore, additionalScore, total } = calculateRawScore(scores);
+export function computeResult(scores, caYears, caMonths, startItemId = 0) {
+  const { baseScore, additionalScore, total } = calculateRawScore(scores, startItemId);
   const sa = calculateSA(total);
   const sq = calculateSQ(sa, caYears, caMonths);
-  const categoryScores = calculateCategoryScores(scores);
+  const categoryScores = calculateCategoryScores(scores, startItemId);
   const basalItemId = findBasal(scores);
 
   return {
@@ -127,5 +133,6 @@ export function computeResult(scores, caYears, caMonths) {
     sq,
     categoryScores,
     basalItemId,
+    startItemId,
   };
 }
